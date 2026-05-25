@@ -7,20 +7,9 @@ import { PriceSlider } from '@/components/unistay/ui/slider';
 import { Combobox } from '@/components/unistay/ui/combobox';
 import type { FilterValues } from '@/lib/unistay/types';
 
-const CITIES = [
-  { value: 'Berlin', label: 'Berlin' },
-  { value: 'Munich', label: 'Munich' },
-  { value: 'Hamburg', label: 'Hamburg' },
-  { value: 'Frankfurt', label: 'Frankfurt' },
-  { value: 'Cologne', label: 'Cologne' },
-  { value: 'Stuttgart', label: 'Stuttgart' },
-  { value: 'Dusseldorf', label: 'Düsseldorf' },
-  { value: 'Leipzig', label: 'Leipzig' },
-  { value: 'Dresden', label: 'Dresden' },
-  { value: 'Nuremberg', label: 'Nuremberg' },
-];
-
 const BEDROOM_OPTIONS = ['Any', '1', '2', '3+'];
+
+
 
 const FEATURES = [
   { id: 'furnished', label: 'Furnished' },
@@ -39,7 +28,15 @@ interface FilterSidebarProps {
 
 export function FilterSidebar({ filters, onChange, onClear, activeCount }: FilterSidebarProps) {
   const [today, setToday] = useState('');
+  const [cities, setCities] = useState<{ value: string; label: string }[]>([]);
+
   useEffect(() => { setToday(new Date().toISOString().split('T')[0]); }, []); // eslint-disable-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    fetch('/api/unistay/cities')
+      .then((r) => r.json())
+      .then((data: string[]) => setCities(data.map((c) => ({ value: c, label: c })))) // eslint-disable-line react-hooks/set-state-in-effect
+      .catch(() => {});
+  }, []);
 
   function set<K extends keyof FilterValues>(key: K, value: FilterValues[K]) {
     onChange({ ...filters, [key]: value });
@@ -72,7 +69,7 @@ export function FilterSidebar({ filters, onChange, onClear, activeCount }: Filte
       <div>
         <label className="text-xs font-medium text-gray-500 mb-2 block uppercase tracking-wide">Location</label>
         <Combobox
-          options={CITIES}
+          options={cities}
           value={filters.city}
           onChange={(v) => set('city', v)}
           placeholder="Any city"
