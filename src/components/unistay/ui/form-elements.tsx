@@ -22,46 +22,60 @@ export function FieldLabel({
 
 type SoftInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   icon?: React.ElementType;
+  error?: string;
 };
 
-export function SoftInput({ icon: Icon, disabled, className = '', ...props }: SoftInputProps) {
+export function SoftInput({ icon: Icon, disabled, error, className = '', ...props }: SoftInputProps) {
   const active = !disabled;
   return (
-    <div className="relative">
-      {Icon && !disabled && (
-        <Icon className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300 pointer-events-none" />
-      )}
-      <input
-        disabled={disabled}
-        className={`w-full text-sm transition-all ${
-          active
-            ? `bg-gray-50 border border-gray-200 rounded-xl py-4 text-gray-800 placeholder:text-gray-300
-               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-               ${Icon ? 'pl-11 pr-5' : 'px-5'}`
-            : 'bg-transparent border-0 px-0 py-0.5 text-gray-700 cursor-default focus:outline-none'
-        } ${className}`}
-        {...props}
-      />
+    <div>
+      <div className="relative">
+        {Icon && !disabled && (
+          <Icon className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300 pointer-events-none" />
+        )}
+        <input
+          disabled={disabled}
+          className={`w-full text-sm transition-all ${
+            active
+              ? `bg-gray-50 border rounded-xl py-4 text-gray-800 placeholder:text-gray-300
+                 focus:outline-none focus:ring-2 focus:border-transparent
+                 ${error
+                   ? 'border-red-400 focus:ring-red-400'
+                   : 'border-gray-200 focus:ring-blue-500'
+                 }
+                 ${Icon ? 'pl-11 pr-5' : 'px-5'}`
+              : 'bg-transparent border-0 px-0 py-0.5 text-gray-700 cursor-default focus:outline-none'
+          } ${className}`}
+          {...props}
+        />
+      </div>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   );
 }
 
 // ─── Textarea ─────────────────────────────────────────────────────────────────
 
-type SoftTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
+type SoftTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  error?: string;
+};
 
-export function SoftTextarea({ disabled, className = '', ...props }: SoftTextareaProps) {
+export function SoftTextarea({ disabled, error, className = '', ...props }: SoftTextareaProps) {
   const active = !disabled;
   return (
-    <textarea
-      disabled={disabled}
-      className={`w-full text-sm transition-all resize-none ${
-        active
-          ? 'bg-gray-50 border border-gray-200 rounded-xl px-5 py-4 text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-          : 'bg-transparent border-0 px-0 py-0.5 text-gray-700 cursor-default focus:outline-none'
-      } ${className}`}
-      {...props}
-    />
+    <div>
+      <textarea
+        disabled={disabled}
+        className={`w-full text-sm transition-all resize-none ${
+          active
+            ? `bg-gray-50 border rounded-xl px-5 py-4 text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:border-transparent
+               ${error ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-blue-500'}`
+            : 'bg-transparent border-0 px-0 py-0.5 text-gray-700 cursor-default focus:outline-none'
+        } ${className}`}
+        {...props}
+      />
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
   );
 }
 

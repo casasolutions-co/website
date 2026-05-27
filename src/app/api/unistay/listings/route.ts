@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
   for (const raw of feedData.listings) {
     const p = transform(raw);
     if (!p) continue;
-    if (city && p.city.toLowerCase() !== city.toLowerCase()) continue;
+    if (city && !p.city.toLowerCase().includes(city.toLowerCase()) && !city.toLowerCase().includes(p.city.toLowerCase())) continue;
     if (type && p.type !== type) continue;
     if (p.price < minPrice || p.price > maxPrice) continue;
     if (bedrooms !== 'all' && p.bedrooms !== parseInt(bedrooms)) continue;

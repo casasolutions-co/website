@@ -17,6 +17,19 @@ interface ComboboxProps {
   className?: string;
 }
 
+function fuzzyMatch(query: string, label: string): boolean {
+  const q = query.toLowerCase();
+  const l = label.toLowerCase();
+  if (l.includes(q)) return true;
+  // chars of query appear in order in label
+  let qi = 0;
+  for (const ch of l) {
+    if (ch === q[qi]) qi++;
+    if (qi === q.length) return true;
+  }
+  return false;
+}
+
 export function Combobox({
   options,
   value,
@@ -32,7 +45,7 @@ export function Combobox({
   const selected = options.find((o) => o.value === value);
 
   const filtered = query.trim()
-    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    ? options.filter((o) => fuzzyMatch(query, o.label))
     : options;
 
   useEffect(() => {
