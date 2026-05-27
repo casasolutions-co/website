@@ -4,11 +4,9 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/unistay/ui/select';
 import { PriceSlider } from '@/components/unistay/ui/slider';
-import { Combobox } from '@/components/unistay/ui/combobox';
 import type { FilterValues } from '@/lib/unistay/types';
 
 const BEDROOM_OPTIONS = ['Any', '1', '2', '3+'];
-
 
 
 const FEATURES = [
@@ -28,15 +26,7 @@ interface FilterSidebarProps {
 
 export function FilterSidebar({ filters, onChange, onClear, activeCount }: FilterSidebarProps) {
   const [today, setToday] = useState('');
-  const [cities, setCities] = useState<{ value: string; label: string }[]>([]);
-
   useEffect(() => { setToday(new Date().toISOString().split('T')[0]); }, []); // eslint-disable-line react-hooks/set-state-in-effect
-  useEffect(() => {
-    fetch('/api/unistay/cities')
-      .then((r) => r.json())
-      .then((data: string[]) => setCities(data.map((c) => ({ value: c, label: c })))) // eslint-disable-line react-hooks/set-state-in-effect
-      .catch(() => {});
-  }, []);
 
   function set<K extends keyof FilterValues>(key: K, value: FilterValues[K]) {
     onChange({ ...filters, [key]: value });
@@ -63,17 +53,6 @@ export function FilterSidebar({ filters, onChange, onClear, activeCount }: Filte
             Clear all ({activeCount})
           </button>
         )}
-      </div>
-
-      {/* City */}
-      <div>
-        <label className="text-xs font-medium text-gray-500 mb-2 block uppercase tracking-wide">Location</label>
-        <Combobox
-          options={cities}
-          value={filters.city}
-          onChange={(v) => set('city', v)}
-          placeholder="Any city"
-        />
       </div>
 
       {/* Property Type */}

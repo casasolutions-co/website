@@ -19,6 +19,18 @@ const FEATURES = [
   { id: 'balcony', label: 'Balcony' },
 ];
 
+function tomorrow(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+function firstOfNextMonth(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1, 1);
+  return d.toISOString().split('T')[0];
+}
+
 export function SearchCard() {
   const router = useRouter();
   const [propertyType, setPropertyType] = useState('');
@@ -34,6 +46,8 @@ export function SearchCard() {
 
   useEffect(() => {
     setToday(new Date().toISOString().split('T')[0]); // eslint-disable-line react-hooks/set-state-in-effect
+    setStartDate(tomorrow()); // eslint-disable-line react-hooks/set-state-in-effect
+    setEndDate(firstOfNextMonth()); // eslint-disable-line react-hooks/set-state-in-effect
   }, []);
 
   useEffect(() => {
