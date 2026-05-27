@@ -52,8 +52,16 @@ function transform(l: any): ExternalProperty | null {
     l.images?.[0]?.originalLink ??
     '';
 
-  const lat = typeof l.location?.geoPoint?.lat === 'number' ? l.location.geoPoint.lat : undefined;
-  const lng = typeof l.location?.geoPoint?.lng === 'number' ? l.location.geoPoint.lng : undefined;
+  // Try several field names the HA feed may use for coordinates
+  const lat: number | undefined =
+    typeof l.location?.geoPoint?.lat  === 'number' ? l.location.geoPoint.lat  :
+    typeof l.location?.lat            === 'number' ? l.location.lat            :
+    typeof l.lat                      === 'number' ? l.lat                     : undefined;
+  const lng: number | undefined =
+    typeof l.location?.geoPoint?.lng  === 'number' ? l.location.geoPoint.lng  :
+    typeof l.location?.lng            === 'number' ? l.location.lng            :
+    typeof l.lng                      === 'number' ? l.lng                     :
+    typeof l.location?.geoPoint?.lon  === 'number' ? l.location.geoPoint.lon  : undefined;
 
   return {
     source: 'housinganywhere',
