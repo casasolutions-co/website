@@ -49,84 +49,103 @@ export default function Navbar() {
   return (
     <nav className={styles.navbar}>
       <div className={styles.container}>
-        {/* Logo */}
-        <Link href="/" className={styles.logo}>
-          <Image
-            src="/images/1.png"
-            alt="Casa Educational Solutions"
-            width={160}
-            height={79}
-            className={styles.logoImage}
-            priority
-          />
-        </Link>
+        {/* Logo — UniStay icon on /unistay routes, Casa logo elsewhere */}
+        {pathname.startsWith('/unistay') ? (
+          <Link href="/unistay" className={styles.logo}>
+            <Image
+              src="/images/UniStay Primary Logo.png"
+              alt="UniStay"
+              width={400}
+              height={120}
+              style={{ height: '40px', width: 'auto' }}
+              priority
+            />
+          </Link>
+        ) : (
+          <Link href="/" className={styles.logo}>
+            <Image
+              src="/images/1.png"
+              alt="Casa Educational Solutions"
+              width={160}
+              height={79}
+              className={styles.logoImage}
+              priority
+            />
+          </Link>
+        )}
 
         {/* Desktop Navigation Links */}
         <ul className={`${styles.menu} ${isOpen ? styles.menuActive : ""}`}>
-          <li className={styles.item}>
-            <Link href="/" className={`${styles.link} ${pathname === "/" ? styles.activeLink : ""}`}>
-              Home
-            </Link>
-          </li>
-          <li className={styles.item}>
-            <Link href="/aboutus" className={`${styles.link} ${pathname === "/aboutus" ? styles.activeLink : ""}`}>
-              About Us
-            </Link>
-          </li>
-          <li className={`${styles.item} ${styles.dropdown} ${dropdownOpen ? styles.dropdownOpen : ""}`}>
-            <span onClick={toggleDropdown} className={styles.link}>
-              Our Solutions <ChevronDown size={16} className={styles.arrowIcon} />
-            </span>
-            <ul className={styles.dropdownMenu}>
-              <li>
-                <Link href="/solutions#studymatch" className={styles.dropdownLink}>
-                  <Degree size={16} /> StudyMatch AI
+          {!pathname.startsWith('/unistay') && (
+            <>
+              <li className={styles.item}>
+                <Link href="/" className={`${styles.link} ${pathname === "/" ? styles.activeLink : ""}`}>
+                  Home
                 </Link>
               </li>
-              <li>
-                <Link href="/unistay" className={styles.dropdownLink}>
-                  <Home size={16} /> UniStay
+              <li className={styles.item}>
+                <Link href="/aboutus" className={`${styles.link} ${pathname === "/aboutus" ? styles.activeLink : ""}`}>
+                  About Us
                 </Link>
               </li>
-              <li>
-                <Link href="/ausbildung-students" className={styles.dropdownLink}>
-                  <Building size={16} /> Ausbildung for Students
-                </Link>
+              <li className={`${styles.item} ${styles.dropdown} ${dropdownOpen ? styles.dropdownOpen : ""}`}>
+                <span onClick={toggleDropdown} className={styles.link}>
+                  Our Solutions <ChevronDown size={16} className={styles.arrowIcon} />
+                </span>
+                <ul className={styles.dropdownMenu}>
+                  <li>
+                    <Link href="/solutions#studymatch" className={styles.dropdownLink}>
+                      <Degree size={16} /> StudyMatch AI
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/unistay" className={styles.dropdownLink}>
+                      <Home size={16} /> UniStay
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/ausbildung-students" className={styles.dropdownLink}>
+                      <Building size={16} /> Ausbildung for Students
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/solutions#visa" className={styles.dropdownLink}>
+                      <ShieldCheck size={16} /> Visa Assistance
+                    </Link>
+                  </li>
+                </ul>
               </li>
-              <li>
-                <Link href="/solutions#visa" className={styles.dropdownLink}>
-                  <ShieldCheck size={16} /> Visa Assistance
-                </Link>
-              </li>
-            </ul>
-          </li>
-          {pathname.startsWith('/unistay') && (
-            <li className={styles.navBtn}>
-              <Link href="/unistay/list-property" className={styles.listBtn}>
-                List Property
-              </Link>
-            </li>
+            </>
           )}
-          <li className={styles.navBtn}>
-            {user ? (
-              <div className={styles.userMenu}>
-                <Link href="/unistay/profile" className={styles.userName}>
-                  {displayName}
+          {pathname.startsWith('/unistay') && (
+            <>
+              <li className={styles.item}>
+                <Link href="/unistay/search" className={`${styles.link} ${pathname === '/unistay/search' ? styles.activeLink : ''}`}>
+                  View Listings
                 </Link>
-                <button
-                  onClick={() => signOut(auth)}
-                  className={styles.logoutBtn}
-                  aria-label="Sign out"
-                >
-                  <LogOut size={15} />
-                </button>
-              </div>
-            ) : (
-              <Link href="/unistay/auth" className={styles.button}>
-                Login
-              </Link>
-            )}
-          </li>
+              </li>
+              <li className={styles.navBtn}>
+                {user ? (
+                  <div className={styles.userMenu}>
+                    <Link href="/unistay/profile" className={styles.userName}>
+                      {displayName}
+                    </Link>
+                    <button
+                      onClick={() => signOut(auth)}
+                      className={styles.logoutBtn}
+                      aria-label="Sign out"
+                    >
+                      <LogOut size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <Link href="/unistay/auth" className={styles.button}>
+                    Login / Register
+                  </Link>
+                )}
+              </li>
+            </>
+          )}
         </ul>
 
         {/* Mobile Toggle */}

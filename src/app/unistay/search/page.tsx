@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X, ChevronDown, Search, Calendar, MapPin, Loader2 } from 'lucide-react';
+import { X, ChevronDown, Search, Calendar, MapPin } from 'lucide-react';
 import { PropertyCard } from '@/components/unistay/PropertyCard';
 import { Breadcrumbs } from '@/components/unistay/ui/breadcrumbs';
 import { useFirestoreListings } from '@/lib/unistay/useFirestoreListings';
@@ -105,13 +105,16 @@ function SearchContent() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchHA = useCallback((f: FilterValues) => {
-    if (!f.search) { setHaListings([]); setHaLoading(false); return; }
+    // While typing but not enough to search yet — wait silently
+    if (f.search && f.search.length < 3) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // No search = load all listings immediately; city search = debounce 800ms
+    const delay = f.search ? 800 : 0;
     debounceRef.current = setTimeout(async () => {
       setHaLoading(true);
       try {
         const p = new URLSearchParams();
-        p.set('city', f.search); // search text drives city filter on HA feed
+        if (f.search) p.set('city', f.search);
         if (f.type) p.set('type', f.type);
         if (f.minPrice > 0)    p.set('minPrice', String(f.minPrice));
         if (f.maxPrice < 3000) p.set('maxPrice', String(f.maxPrice));
@@ -121,7 +124,7 @@ function SearchContent() {
       } finally {
         setHaLoading(false); // eslint-disable-line react-hooks/set-state-in-effect
       }
-    }, 300);
+    }, delay);
   }, []);
 
   useEffect(() => { fetchHA(filters); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -146,14 +149,20 @@ function SearchContent() {
 
   function handleFilterChange(f: FilterValues) { setFilters(f); syncUrl(f); fetchHA(f); setVisibleCount(PAGE_SIZE); }
   function handleSearchInput(v: string) { const n = { ...filters, search: v }; setFilters(n); syncUrl(n); fetchHA(n); setVisibleCount(PAGE_SIZE); }
-  function handleClear() { setFilters(DEFAULT_FILTERS); setHaListings([]); setOpenPill(null); setVisibleCount(PAGE_SIZE); router.replace('/unistay/search', { scroll: false }); }
+  function handleClear() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setFilters(DEFAULT_FILTERS);
+    setHaListings([]);
+    setHaLoading(false);
+    setOpenPill(null);
+    setVisibleCount(PAGE_SIZE);
+    router.replace('/unistay/search', { scroll: false });
+  }
 
   // Merge: Firestore versions of Casa listings win over static; static fills gaps
   const firestoreIds = new Set(firestoreListings.map((p) => p.id));
   const staticFallback = casaProperties.filter((p) => !firestoreIds.has(p.id));
   const sorted  = sortProperties(applyFilters([...firestoreListings, ...staticFallback, ...haListings], filters), sortBy);
-  const loading = listingsLoading || haLoading;
-
   // Infinite scroll — load next page when sentinel enters viewport
   useEffect(() => {
     const el = sentinelRef.current;
@@ -207,6 +216,29 @@ function SearchContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* ── Full-screen loading overlay ── */}
+      {haLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl px-12 py-10 flex flex-col items-center gap-5 min-w-[260px]">
+            {/* Spinner */}
+            <div className="relative w-14 h-14">
+              <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
+              <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin" />
+            </div>
+            <div className="text-center">
+              <p className="text-gray-900 font-semibold text-base">Searching listings</p>
+              {filters.search && (
+                <p className="text-gray-400 text-sm mt-1">
+                  Finding properties in{' '}
+                  <span className="font-medium text-gray-600">{filters.search}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="container mx-auto px-4 pt-4 pb-12 lg:pt-6">
 
         {/* Nav */}
@@ -396,9 +428,9 @@ function SearchContent() {
           </div>
         )}
 
-        {/* Result count */}
+        {/* Result count — show count immediately once Firestore is done; HA badge handled on map */}
         <div className="flex items-center gap-3 mb-3 min-h-[20px]">
-          {loading ? (
+          {listingsLoading && sorted.length === 0 ? (
             <span className="text-sm text-gray-400 animate-pulse">Loading…</span>
           ) : (
             <span className="text-sm text-gray-600">
@@ -407,7 +439,6 @@ function SearchContent() {
               {filters.search && <span className="text-gray-400"> in <span className="text-gray-600 font-medium">{filters.search}</span></span>}
             </span>
           )}
-          {haLoading && <span className="text-xs text-blue-500">Fetching partner listings…</span>}
         </div>
 
         {/* Split view: list (left, 58%) + map (right, sticky) */}
@@ -470,12 +501,6 @@ function SearchContent() {
             {sorted.length > 0 ? (
               <>
                 <PropertyMap properties={sorted} selectedId={selectedId} onSelect={setSelectedId} />
-                {haLoading && (
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-gray-100 rounded-full px-3 py-1.5 shadow text-xs text-gray-500 whitespace-nowrap pointer-events-none">
-                    <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
-                    Loading partner listings…
-                  </div>
-                )}
               </>
             ) : (
               <div className="w-full h-full bg-gray-100 animate-pulse" />
