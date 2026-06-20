@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import nodemailer from 'nodemailer';
-import { adminAuth } from '@/lib/unistay/firebase-admin';
+import { getAdminAuth } from '@/lib/unistay/firebase-admin';
 import { verificationEmailHtml } from '@/lib/unistay/emailTemplate';
 
 const transporter = nodemailer.createTransport({
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   if (!uid || !email) return Response.json({ error: 'Missing uid or email' }, { status: 400 });
 
   try {
-    const verifyUrl = await adminAuth.generateEmailVerificationLink(email, {
+    const verifyUrl = await getAdminAuth().generateEmailVerificationLink(email, {
       url: `${process.env.NEXT_PUBLIC_SITE_URL}/unistay/browse`,
     });
 
