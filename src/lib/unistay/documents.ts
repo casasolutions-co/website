@@ -1,5 +1,5 @@
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { storage, db } from './firebase';
 
 export const DOC_TYPES = [
@@ -42,7 +42,7 @@ export function uploadDocument(
             uploadedAt: new Date().toISOString(),
             size: file.size,
           };
-          await updateDoc(doc(db, 'users', uid), { [`documents.${docKey}`]: record });
+          await setDoc(doc(db, 'users', uid), { documents: { [docKey]: record } }, { merge: true });
           resolve(record);
         } catch (e) {
           reject(e);

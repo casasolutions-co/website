@@ -1,7 +1,22 @@
 import type { ExternalProperty, PropertyType } from '@/lib/unistay/types';
 import { NextRequest } from 'next/server';
+import { d1Run } from '@/lib/unistay/d1';
+import { randomUUID } from 'crypto';
 
 const FEED_URL = 'https://housinganywhere.com/feeds/CASASolutions/CASASolutions.json';
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Raw feed cached in memory — reloaded once per hour
+let feedCache: { data: { listings: unknown[] }; fetchedAt: number } | null = null;
+
+async function getHAFeed(): Promise<{ listings: unknown[] }> {
+  if (feedCache && Date.now() - feedCache.fetchedAt < CACHE_TTL) return feedCache.data;
+  const res = await fetch(FEED_URL, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Feed returned ${res.status}`);
+  const data = await res.json() as { listings: unknown[] };
+  feedCache = { data, fetchedAt: Date.now() };
+  return data;
+}
 
 // Normalize city names from the feed to match our filter values
 const CITY_MAP: Record<string, string> = {
@@ -82,6 +97,48 @@ function transform(l: any): ExternalProperty | null {
   };
 }
 
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const {
+    title, type, city, address, price, bedrooms, size,
+    availableFrom, description, images, features,
+    lat, lng, coldRent, utilityEstimate, submittedBy,
+  } = body;
+
+  if (!title || !city || !price || !submittedBy) {
+    return Response.json({ error: 'Missing required fields' }, { status: 400 });
+  }
+
+  const id = randomUUID();
+  const now = new Date().toISOString();
+
+  await d1Run(
+    `INSERT INTO listings (id, source, title, type, city, address, price, bedrooms, size,
+       available_from, description, featured, lat, lng, cold_rent, utility_estimate,
+       status, submitted_by, submitted_at, created_at)
+     VALUES (?, 'casa', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'pending_review', ?, ?, ?)`,
+    [id, title, type ?? 'studio', city, address ?? '', price,
+     bedrooms ?? 1, size ?? 0, availableFrom ?? '',
+     description ?? '', lat ?? null, lng ?? null,
+     coldRent ?? null, utilityEstimate ?? null,
+     submittedBy, now, now],
+  );
+
+  if (Array.isArray(images)) {
+    for (const url of images as string[]) {
+      await d1Run('INSERT INTO listing_images (listing_id, image_url) VALUES (?, ?)', [id, url]);
+    }
+  }
+
+  if (Array.isArray(features)) {
+    for (const f of features as string[]) {
+      await d1Run('INSERT INTO listing_features (listing_id, feature) VALUES (?, ?)', [id, f]);
+    }
+  }
+
+  return Response.json({ ok: true, id });
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const city = searchParams.get('city') ?? '';
@@ -90,26 +147,31 @@ export async function GET(req: NextRequest) {
   const maxPrice = parseInt(searchParams.get('maxPrice') ?? '99999');
   const bedrooms = searchParams.get('bedrooms') ?? 'all';
 
-  let feedData: { listings: unknown[] };
+  let feed: { listings: unknown[] };
   try {
-    const res = await fetch(FEED_URL, { next: { revalidate: 3600 } });
-    if (!res.ok) throw new Error(`Feed returned ${res.status}`);
-    feedData = await res.json();
+    feed = await getHAFeed();
   } catch {
     return Response.json({ error: 'Failed to fetch listings' }, { status: 502 });
   }
 
-  const listings: ExternalProperty[] = [];
-  for (const raw of feedData.listings) {
-    const p = transform(raw);
-    if (!p) continue;
-    if (city && !p.city.toLowerCase().includes(city.toLowerCase()) && !city.toLowerCase().includes(p.city.toLowerCase())) continue;
-    if (type && p.type !== type) continue;
-    if (p.price < minPrice || p.price > maxPrice) continue;
-    if (bedrooms !== 'all' && p.bedrooms !== parseInt(bedrooms)) continue;
-    listings.push(p);
-    if (listings.length >= 200) break;
-  }
+  // Filter on raw fields first (cheap), then transform only the matching subset
+  const cityQ = city.toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (feed.listings as any[]).filter((l) => {
+    if (cityQ) {
+      const lCity = normalizeCity(l.location?.city ?? '').toLowerCase();
+      if (!lCity.includes(cityQ) && !cityQ.includes(lCity)) return false;
+    }
+    return true;
+  });
+
+  const listings = raw
+    .map(transform)
+    .filter((p): p is ExternalProperty => p !== null)
+    .filter((p) => !type || p.type === type)
+    .filter((p) => p.price >= minPrice && p.price <= maxPrice)
+    .filter((p) => bedrooms === 'all' || p.bedrooms === parseInt(bedrooms))
+    .slice(0, 200);
 
   return Response.json(listings, {
     headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' },

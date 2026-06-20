@@ -1,24 +1,24 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signInWithPopup, signOut, updateProfile,
+} from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/unistay/firebase';
-import { DOC_TYPES, DocKey, DocRecord, uploadDocument, formatBytes } from '@/lib/unistay/documents';
 import {
   User, Mail, Lock, Eye, EyeOff, GraduationCap, Globe,
-  Phone, Calendar, ArrowRight, ArrowLeft, CheckCircle2,
-  Upload, FileText, X, Loader2,
+  Phone, ArrowRight, ArrowLeft, CheckCircle2, Briefcase, Loader2, Send,
 } from 'lucide-react';
 import { Button } from '@/components/unistay/ui/button';
 
 const STEPS = [
   { number: 1, label: 'Account' },
-  { number: 2, label: 'Student Info' },
-  { number: 3, label: 'Documents' },
+  { number: 2, label: 'Your Details' },
 ];
 
 const NATIONALITIES = [
@@ -26,37 +26,48 @@ const NATIONALITIES = [
   'American', 'Nigerian', 'Brazilian', 'Turkish', 'Pakistani', 'Other',
 ];
 
+const START_YEARS = Array.from({ length: 6 }, (_, i) => String(new Date().getFullYear() + i - 1));
+
 const LEFT_PANEL = [
-  { image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=1600', headline: 'Find your home in Germany.', sub: 'Join thousands of students who found their perfect flat through UniStay.' },
+  { image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=1600', headline: 'Find your home in Germany.', sub: 'Join thousands of people who found their perfect flat through UniStay.' },
   { image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=1600', headline: 'Your profile, your story.', sub: 'A complete profile helps landlords say yes — faster.' },
-  { image: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1600', headline: 'Verify your application.', sub: 'Uploading your documents now speeds up approval — you can also do this later.' },
-  { image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1600', headline: 'You are all set.', sub: 'Start browsing verified student flats across Germany.' },
+  { image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1600', headline: 'Almost there.', sub: 'Check your inbox — we sent you a verification link to confirm your account.' },
+];
+
+const STEP_HEADLINES = [
+  { eyebrow: 'Join UniStay',    headline: "Let's get\nstarted",   sub: 'Create your free account.' },
+  { eyebrow: 'Your Details',    headline: 'Tell us\nabout you',   sub: 'This helps landlords understand your situation.' },
 ];
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [step, setStep]           = useState(1);
+  const [step, setStep]             = useState(1);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError]         = useState('');
-  const [loading, setLoading]     = useState(false);
-  const [googleUid, setGoogleUid] = useState('');
+  const [error, setError]           = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [googleUid, setGoogleUid]   = useState('');
   const [createdUid, setCreatedUid] = useState('');
+  const [emailSentTo, setEmailSentTo] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginLoading, setLoginLoading]   = useState(false);
+  const [loginError, setLoginError]       = useState('');
 
   const [account, setAccount] = useState({ name: '', email: '', password: '' });
-  const [student, setStudent] = useState({
-    phone: '', nationality: '', university: '',
-    program: '', moveInDate: '', bio: '',
+  const [profile, setProfile] = useState({
+    phone: '',
+    nationality: '',
+    occupation: '' as '' | 'student' | 'employed',
+    // student
+    university: '',
+    program: '',
+    startYear: '',
+    // employed
+    jobRole: '',
+    // shared
+    purpose: '',
   });
 
-  // Document upload state per slot
-  const [docRecords, setDocRecords] = useState<Partial<Record<DocKey, DocRecord>>>({});
-  const [docProgress, setDocProgress] = useState<Partial<Record<DocKey, number>>>({});
-  const [docError, setDocError]       = useState<Partial<Record<DocKey, string>>>({});
-  const fileInputRefs = useRef<Partial<Record<DocKey, HTMLInputElement | null>>>({});
-
-  const uid = createdUid || googleUid;
-
-  function nextStep() { setStep((s) => Math.min(s + 1, 4)); }
+  function nextStep() { setStep((s) => Math.min(s + 1, 3)); }
   function prevStep() { setStep((s) => Math.max(s - 1, 1)); }
 
   function handleAccountSubmit(e: React.SyntheticEvent) {
@@ -65,7 +76,7 @@ export default function RegisterPage() {
     nextStep();
   }
 
-  async function handleStudentSubmit(e: React.SyntheticEvent) {
+  async function handleProfileSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -79,23 +90,37 @@ export default function RegisterPage() {
         await updateProfile(cred.user, { displayName: account.name });
         uid = cred.user.uid;
         setCreatedUid(uid);
+        setEmailSentTo(account.email);
+        fetch('/api/unistay/send-verification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid, name: account.name, email: account.email }),
+        }).catch(console.error);
+        // Sign out so they must log in after verifying their email
+        await signOut(auth);
       } else {
         const currentUser = auth.currentUser;
         name = currentUser?.displayName ?? name;
         email = currentUser?.email ?? email;
+        // Google users are already verified — no email needed
+        setEmailSentTo('');
       }
 
       await setDoc(doc(db, 'users', uid), {
-        name, email,
-        phone: student.phone,
-        nationality: student.nationality,
-        university: student.university,
-        program: student.program,
-        moveInDate: student.moveInDate,
-        bio: student.bio,
-        role: 'user',
-        createdAt: new Date().toISOString(),
-        documents: {},
+        name,
+        email,
+        phone:       profile.phone,
+        nationality: profile.nationality,
+        occupation:  profile.occupation,
+        university:  profile.occupation === 'student' ? profile.university : '',
+        program:     profile.occupation === 'student' ? profile.program    : '',
+        startYear:   profile.occupation === 'student' ? profile.startYear  : '',
+        jobRole:     profile.occupation === 'employed' ? profile.jobRole   : '',
+        purpose:     profile.purpose,
+        role:        'user',
+        createdAt:   new Date().toISOString(),
+        documents:   {},
+        applicationStatus: 'pending',
       }, { merge: true });
 
       nextStep();
@@ -114,9 +139,8 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const cred = await signInWithPopup(auth, googleProvider);
-      // If they already have a complete profile, skip registration and go to profile
       const snap = await getDoc(doc(db, 'users', cred.user.uid));
-      if (snap.exists() && !!(snap.data()?.university)) {
+      if (snap.exists() && !!(snap.data()?.occupation)) {
         router.replace('/unistay/profile');
         return;
       }
@@ -126,43 +150,37 @@ export default function RegisterPage() {
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') { /* ignore */ }
-      else if (code === 'auth/popup-blocked') setError('Popup was blocked. Please allow popups and try again.');
-      else if (code === 'auth/unauthorized-domain') setError('Add localhost to Authorised Domains in Firebase Console.');
-      else if (code === 'auth/operation-not-allowed') setError('Google sign-in is not enabled in Firebase Console.');
+      else if (code === 'auth/popup-blocked')          setError('Popup was blocked. Please allow popups and try again.');
+      else if (code === 'auth/unauthorized-domain')    setError('Add localhost to Authorised Domains in Firebase Console.');
+      else if (code === 'auth/operation-not-allowed')  setError('Google sign-in is not enabled in Firebase Console.');
       else { setError(`Sign-up failed (${code || 'unknown'}). Check the console.`); console.error(err); }
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleFileSelect(docKey: DocKey, file: File) {
-    if (!uid) return;
-    setDocError((p) => ({ ...p, [docKey]: undefined }));
-    setDocProgress((p) => ({ ...p, [docKey]: 0 }));
+  async function handleLogin(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
     try {
-      const record = await uploadDocument(uid, docKey, file, (pct) =>
-        setDocProgress((p) => ({ ...p, [docKey]: pct })),
-      );
-      setDocRecords((p) => ({ ...p, [docKey]: record }));
+      await signInWithEmailAndPassword(auth, emailSentTo, loginPassword);
+      router.replace('/unistay/browse');
     } catch {
-      setDocError((p) => ({ ...p, [docKey]: 'Upload failed. Please try again.' }));
+      setLoginError('Incorrect password. Please try again.');
     } finally {
-      setDocProgress((p) => { const n = { ...p }; delete n[docKey]; return n; });
+      setLoginLoading(false);
     }
   }
 
-  const panel = LEFT_PANEL[Math.min(step - 1, 3)];
-  const uploadedCount = Object.keys(docRecords).length;
-
-  const STEP_HEADLINES = [
-    { eyebrow: 'Join UniStay',    headline: "Let's get\nstarted",     sub: 'Create your free student account.' },
-    { eyebrow: 'Student Profile', headline: 'Tell us\nabout you',     sub: 'This helps landlords understand your situation.' },
-    { eyebrow: 'Documents',       headline: 'Verify your\napplication', sub: 'Upload your documents to speed up approval. You can also do this from your profile later.' },
-  ];
+  const panel = LEFT_PANEL[Math.min(step - 1, 2)];
+  const isStudent  = profile.occupation === 'student';
+  const isEmployed = profile.occupation === 'employed';
 
   return (
     <div className="flex flex-col bg-white" style={{ height: 'calc(100vh - var(--navbar-height))' }}>
       <main className="flex-1 flex overflow-hidden">
+
         {/* Left panel */}
         <div className="hidden lg:block relative w-5/12 overflow-hidden">
           <Image src={panel.image} alt="Student housing" fill className="object-cover transition-all duration-700" priority />
@@ -178,9 +196,9 @@ export default function RegisterPage() {
         <div className="w-full lg:w-7/12 flex flex-col justify-center px-8 md:px-16 lg:px-24 py-6 bg-white overflow-y-auto">
           <div className="max-w-lg w-full mx-auto">
 
-            {step < 4 && (
+            {/* Step indicator (steps 1 & 2 only) */}
+            {step < 3 && (
               <>
-                {/* Step indicator */}
                 <div className="flex items-center gap-2 mb-3">
                   {STEPS.map((s, i) => (
                     <div key={s.number} className="flex items-center gap-2">
@@ -194,22 +212,17 @@ export default function RegisterPage() {
                     </div>
                   ))}
                 </div>
-
-                {step < 4 && (
-                  <>
-                    <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest block mb-2">
-                      {STEP_HEADLINES[step - 1]?.eyebrow}
-                    </span>
-                    <h1 className="text-4xl font-bold text-gray-900 mb-2 leading-tight tracking-tight whitespace-pre-line">
-                      {STEP_HEADLINES[step - 1]?.headline}
-                    </h1>
-                    <p className="text-gray-400 mb-3 text-sm">
-                      {step === 2 && googleUid
-                        ? `Signed in as ${account.name || account.email}. Fill in your student details below.`
-                        : STEP_HEADLINES[step - 1]?.sub}
-                    </p>
-                  </>
-                )}
+                <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest block mb-2">
+                  {STEP_HEADLINES[step - 1]?.eyebrow}
+                </span>
+                <h1 className="text-4xl font-bold text-gray-900 mb-2 leading-tight tracking-tight whitespace-pre-line">
+                  {STEP_HEADLINES[step - 1]?.headline}
+                </h1>
+                <p className="text-gray-400 mb-3 text-sm">
+                  {step === 2 && googleUid
+                    ? `Signed in as ${account.name || account.email}. Fill in your details below.`
+                    : STEP_HEADLINES[step - 1]?.sub}
+                </p>
               </>
             )}
 
@@ -237,7 +250,9 @@ export default function RegisterPage() {
                 </div>
                 <form onSubmit={handleAccountSubmit} className="space-y-3">
                   <div>
-                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Full Name</label>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                      Full Name <span className="text-red-400">*</span>
+                    </label>
                     <div className="relative">
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
                       <input type="text" required value={account.name} onChange={(e) => setAccount((a) => ({ ...a, name: e.target.value }))} placeholder="Jane Smith"
@@ -245,7 +260,9 @@ export default function RegisterPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Email</label>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                      Email <span className="text-red-400">*</span>
+                    </label>
                     <div className="relative">
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
                       <input type="email" required value={account.email} onChange={(e) => setAccount((a) => ({ ...a, email: e.target.value }))} placeholder="you@example.com"
@@ -253,7 +270,9 @@ export default function RegisterPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Password</label>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                      Password <span className="text-red-400">*</span>
+                    </label>
                     <div className="relative">
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
                       <input type={showPassword ? 'text' : 'password'} required minLength={8} value={account.password}
@@ -283,22 +302,26 @@ export default function RegisterPage() {
                 </form>
                 <p className="text-center text-sm text-gray-400 mt-6">
                   Already have an account?{' '}
-                  <Link href="/unistay/auth" className="text-blue-600 font-semibold hover:underline">
-                    Sign in
-                  </Link>
+                  <Link href="/unistay/auth" className="text-blue-600 font-semibold hover:underline">Sign in</Link>
                 </p>
               </>
             )}
 
-            {/* ── Step 2: Student Info ── */}
+            {/* ── Step 2: Your Details ── */}
             {step === 2 && (
-              <form onSubmit={handleStudentSubmit} className="space-y-3">
+              <form onSubmit={handleProfileSubmit} className="space-y-4">
+
+                {/* Mandatory section */}
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Required</p>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Nationality</label>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                      Nationality <span className="text-red-400">*</span>
+                    </label>
                     <div className="relative">
                       <Globe className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300 pointer-events-none" />
-                      <select required value={student.nationality} onChange={(e) => setStudent((s) => ({ ...s, nationality: e.target.value }))}
+                      <select required value={profile.nationality} onChange={(e) => setProfile((p) => ({ ...p, nationality: e.target.value }))}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none">
                         <option value="">Select...</option>
                         {NATIONALITIES.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -306,166 +329,222 @@ export default function RegisterPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Phone</label>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                      Phone <span className="text-red-400">*</span>
+                    </label>
                     <div className="relative">
                       <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-                      <input type="tel" required value={student.phone} onChange={(e) => setStudent((s) => ({ ...s, phone: e.target.value }))} placeholder="+49 ..."
+                      <input type="tel" required value={profile.phone} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))} placeholder="+49 ..."
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">University</label>
-                  <div className="relative">
-                    <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-                    <input type="text" required value={student.university} onChange={(e) => setStudent((s) => ({ ...s, university: e.target.value }))} placeholder="e.g. Technical University of Berlin"
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Program / Course</label>
-                  <input type="text" required value={student.program} onChange={(e) => setStudent((s) => ({ ...s, program: e.target.value }))} placeholder="e.g. MSc Computer Science"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-5 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Expected Move-in Date</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-                    <input type="date" required value={student.moveInDate} onChange={(e) => setStudent((s) => ({ ...s, moveInDate: e.target.value }))}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                </div>
+
+                {/* Occupation toggle */}
                 <div>
                   <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
-                    Short Bio <span className="normal-case text-gray-300 font-normal">(optional)</span>
+                    I am a <span className="text-red-400">*</span>
                   </label>
-                  <textarea rows={2} value={student.bio} onChange={(e) => setStudent((s) => ({ ...s, bio: e.target.value }))} placeholder="Tell landlords a bit about yourself..."
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-5 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      { value: 'student',  label: 'Student',  Icon: GraduationCap },
+                      { value: 'employed', label: 'Employed', Icon: Briefcase },
+                    ] as const).map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setProfile((p) => ({ ...p, occupation: value }))}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${
+                          profile.occupation === value
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {/* Student fields */}
+                {isStudent && (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                        University <span className="text-red-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
+                        <input type="text" required={isStudent} value={profile.university}
+                          onChange={(e) => setProfile((p) => ({ ...p, university: e.target.value }))}
+                          placeholder="e.g. Technical University of Berlin"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                          Program / Course <span className="text-red-400">*</span>
+                        </label>
+                        <input type="text" required={isStudent} value={profile.program}
+                          onChange={(e) => setProfile((p) => ({ ...p, program: e.target.value }))}
+                          placeholder="e.g. MSc Computer Science"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                          Start Year <span className="text-red-400">*</span>
+                        </label>
+                        <select required={isStudent} value={profile.startYear}
+                          onChange={(e) => setProfile((p) => ({ ...p, startYear: e.target.value }))}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none">
+                          <option value="">Year...</option>
+                          {START_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Employed fields */}
+                {isEmployed && (
+                  <div>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                      What do you do? <span className="normal-case font-normal text-gray-300">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
+                      <input type="text" value={profile.jobRole}
+                        onChange={(e) => setProfile((p) => ({ ...p, jobRole: e.target.value }))}
+                        placeholder="e.g. Software Engineer at Siemens"
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional section */}
+                {profile.occupation && (
+                  <>
+                    <div className="border-t border-gray-100 pt-4">
+                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Optional</p>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">
+                          Why UniStay?
+                        </label>
+                        <textarea rows={3} value={profile.purpose}
+                          onChange={(e) => setProfile((p) => ({ ...p, purpose: e.target.value }))}
+                          placeholder="Tell us why you're looking for housing and what you need…"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div className="flex gap-3 pt-1">
                   <button type="button" onClick={prevStep}
                     className="flex items-center gap-2 px-5 py-3 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-gray-50 transition-colors">
                     <ArrowLeft className="h-4 w-4" /> Back
                   </button>
-                  <button type="submit" disabled={loading}
+                  <button type="submit" disabled={loading || !profile.occupation}
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 group transition-all disabled:opacity-50">
-                    {loading ? (<><Loader2 className="h-4 w-4 animate-spin" /> Creating account…</>) : (<>Continue <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" /></>)}
+                    {loading
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating account…</>
+                      : <>Create Account <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" /></>}
                   </button>
                 </div>
               </form>
             )}
 
-            {/* ── Step 3: Documents ── */}
+            {/* ── Step 3: Done ── */}
             {step === 3 && (
-              <div className="space-y-3">
-                {DOC_TYPES.map(({ key, label, hint }) => {
-                  const record   = docRecords[key];
-                  const progress = docProgress[key];
-                  const err      = docError[key];
-                  const uploading = progress !== undefined;
+              <>
+                {/* Email/password: signed out, must verify then log in */}
+                {emailSentTo ? (
+                  <>
+                    <div className="flex items-center gap-3 mb-5">
+                      <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center shrink-0">
+                        <Send className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-blue-600 uppercase tracking-widest">Check your inbox</p>
+                        <h1 className="text-2xl font-bold text-gray-900 leading-tight">Verify your email</h1>
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-6">
+                      <p className="text-sm text-blue-800">
+                        We sent a verification link to{' '}
+                        <span className="font-semibold">{emailSentTo}</span>.
+                        Click it to activate your account, then sign in below.
+                      </p>
+                    </div>
 
-                  return (
-                    <div key={key} className={`rounded-xl border px-4 py-3 transition-colors ${record ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${record ? 'bg-green-100' : 'bg-gray-100'}`}>
-                            {record ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <FileText className="h-4 w-4 text-gray-400" />}
-                          </div>
-                          <div className="min-w-0">
-                            <p className={`text-sm font-medium ${record ? 'text-green-800' : 'text-gray-800'}`}>{label}</p>
-                            {record ? (
-                              <p className="text-xs text-green-600 truncate">{record.name} · {formatBytes(record.size)}</p>
-                            ) : (
-                              <p className="text-xs text-gray-400">{hint}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="shrink-0">
-                          {uploading ? (
-                            <div className="flex items-center gap-2 text-xs text-blue-600">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              {progress}%
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => fileInputRefs.current[key]?.click()}
-                              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-                                record ? 'text-gray-500 hover:bg-gray-100' : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                              }`}
-                            >
-                              <Upload className="h-3 w-3" />
-                              {record ? 'Replace' : 'Upload'}
-                            </button>
-                          )}
+                    <form onSubmit={handleLogin} className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Email</label>
+                        <div className="relative">
+                          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
+                          <input
+                            type="email"
+                            value={emailSentTo}
+                            readOnly
+                            className="w-full bg-gray-100 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-400 cursor-not-allowed"
+                          />
                         </div>
                       </div>
-
-                      {err && <p className="text-xs text-red-500 mt-1.5">{err}</p>}
-
-                      {uploading && (
-                        <div className="mt-2 h-1 bg-gray-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 block">Password</label>
+                        <div className="relative">
+                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
+                          <input
+                            type="password"
+                            required
+                            autoFocus
+                            value={loginPassword}
+                            onChange={(e) => setLoginPassword(e.target.value)}
+                            placeholder="Your password"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
                         </div>
+                      </div>
+                      {loginError && (
+                        <p className="text-sm text-red-500">{loginError}</p>
                       )}
-
-                      <input
-                        ref={(el) => { fileInputRefs.current[key] = el; }}
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        className="hidden"
-                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(key as DocKey, f); e.target.value = ''; }}
-                      />
+                      <button
+                        type="submit"
+                        disabled={loginLoading}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                      >
+                        {loginLoading
+                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</>
+                          : <>Sign in <ArrowRight className="h-4 w-4" /></>}
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  /* Google: already verified, already signed in */
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6">
+                      <CheckCircle2 className="h-10 w-10 text-green-500" />
                     </div>
-                  );
-                })}
-
-                <p className="text-xs text-gray-400 text-center pt-1">
-                  Accepted: PDF, JPG, PNG · Max 10 MB per file
-                </p>
-
-                <div className="flex gap-3 pt-1">
-                  <button type="button" onClick={() => nextStep()}
-                    className="flex items-center gap-2 px-5 py-3 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-gray-50 transition-colors">
-                    <X className="h-4 w-4" /> Skip for now
-                  </button>
-                  <button type="button" onClick={() => nextStep()}
-                    disabled={uploadedCount === 0}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 group transition-all">
-                    {uploadedCount > 0 ? `Continue (${uploadedCount} uploaded)` : 'Continue'}
-                    <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-                </div>
-              </div>
+                    <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest block mb-4">Welcome aboard</span>
+                    <h1 className="text-4xl font-bold text-gray-900 mb-3 leading-tight tracking-tight">You&apos;re all set!</h1>
+                    <p className="text-gray-400 mb-10 text-base">
+                      Welcome to UniStay, <span className="font-semibold text-gray-700">{account.name || 'there'}</span>.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+                      <Button onClick={() => router.push('/unistay/search')} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl">
+                        Browse Properties
+                      </Button>
+                      <Button onClick={() => router.push('/unistay/profile')} variant="outline" className="flex-1 border-gray-200 text-gray-600 hover:border-blue-400 py-4 rounded-xl">
+                        View Profile
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {/* ── Step 4: Success ── */}
-            {step === 4 && (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
-                  <CheckCircle2 className="h-10 w-10 text-green-600" />
-                </div>
-                <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest block mb-4">Welcome Aboard</span>
-                <h1 className="text-5xl font-bold text-gray-900 mb-3 leading-tight tracking-tight">You are all set!</h1>
-                <p className="text-gray-400 mb-2 text-base">
-                  Welcome to UniStay, <span className="font-semibold text-gray-700">{account.name || 'there'}</span>.
-                </p>
-                <p className="text-gray-300 text-sm mb-10">
-                  {uploadedCount > 0
-                    ? `${uploadedCount} document${uploadedCount > 1 ? 's' : ''} uploaded. Casa will review your application soon.`
-                    : 'Your account is ready. Upload your documents from your profile when you\'re ready.'}
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
-                  <Button onClick={() => router.push('/unistay/profile')} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl">
-                    View My Profile
-                  </Button>
-                  <Button onClick={() => router.push('/unistay/search')} variant="outline" className="flex-1 border-gray-200 text-gray-600 hover:border-blue-400 py-4 rounded-xl">
-                    Browse Properties
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </main>
