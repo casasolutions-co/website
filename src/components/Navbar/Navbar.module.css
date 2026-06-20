@@ -269,7 +269,8 @@
     justify-content: space-between;
   }
 
-  .dropdownMenu {
+  .dropdownMenu,
+  .dropdown:hover .dropdownMenu {
     position: static;
     transform: none;
     opacity: 1;
@@ -289,6 +290,10 @@
 
   .dropdownOpen .arrowIcon {
     transform: rotate(180deg);
+  }
+
+  .dropdownLink:hover {
+    transform: none;
   }
 
   .navBtn {
